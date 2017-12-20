@@ -6,6 +6,7 @@ from sltools import load_pickle
 from scipy.sparse import  vstack
 from scipy.sparse import  csr_matrix
 from scipy.sparse import  diags
+from scipy.sparse import coo_matrix
 from itemNetDisPrepare import extractItemInfo
 from userNetDisPrepare import extractUserInfo
 import dask.array as da
@@ -13,7 +14,32 @@ import h5sparse
 import h5py
 import  time
 from regression import regression
+from usefulTool import generate_quantile
+from    ALS                   import als
 
+
+def transfromData():
+    filePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\"
+    train = pd.read_csv(filePlace+"user_artists.csv")
+    train.weight = np.log(train.weight)
+    train.to_csv(filePlace+"user_artistsAfterlog.csv",index = False)
+
+
+
+
+
+
+
+
+
+
+def generateContinousVar(filePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\"):
+    os.chdir(filePlace)
+    train = pd.read_csv("user_artistsAfterlog.csv")
+    userCntinue   = generate_quantile(train,'userID','weight')
+    artistCntinue = generate_quantile(train, 'artistID', 'weight')
+    userCntinue.to_csv("user_continuous_covariates.csv")
+    artistCntinue.to_csv("artist_continuous_covariates.csv")
 
 
 
@@ -210,7 +236,7 @@ def main():
     gc.collect()
     # read train data
     os.chdir("C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k")
-    train = pd.read_csv("user_artists.csv")
+    train = pd.read_csv("user_artistsAfterlog.csv")
 
     user_id = "userID"
     item_id = "artistID"
@@ -226,10 +252,13 @@ def main():
     # train['weight'] = train['weight']-trainMean
 
 
-    weight = regression(train)
-    train['weight'] = weight
 
+    # do not do regression at the first time trying
 
+    # weight = regression(train)
+    # train['weight'] = weight
+
+    train.to_csv("trainAfterReg.csv")
     gc.collect()
 
 
@@ -264,17 +293,50 @@ def main():
 
 
 
+    trainAfterReg = pd.read_csv("trainAfterReg.csv")
+    row = trainAfterReg['userID'].get_values()
+    col = trainAfterReg['artistID'].get_values()
+    data = trainAfterReg['weight'].get_values()
+
+    rating_matrix = coo_matrix((data, (row, col)), dtype=np.float)
+
+    del train, row, col, data
+    gc.collect()
+
+    # y_observed = pd.read_csv('y_observed.csv')
+    # row = y_observed['userID'].get_values()
+    # col = y_observed['artistID'].get_values()
+    # data = y_observed['y'].get_values()
+    # y_observed_matrix = coo_matrix((data, (row, col)), dtype=np.float)
+    # del y_observed, row, col, data
+    # gc.collect()
+
+    path = 'C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\yPrepare.h5'
+    name1 = '/yData/y'
+    name2 = '/yData/y_trans'
+
+    result = als(rating_matrix, path, name1, name2, factor_num=5, method='l2', iteration_num=100, user_loop_num=1,
+                 item_loop_num=1, lambda_user=3, lambda_item=3)
+    print(result)
+
+
+
+
+
+
 
 
 
 
 if __name__=="__main__":
-    #extractUserInfo()
-    #extractItemInfo()
 
-
-
+    transfromData()
+    generateContinousVar()
+    extractUserInfo()
+    extractItemInfo()
     main()
+    # print(graph(result[1:]))
+
 
     # # test
     # h5f = h5py.File("C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\yPrepare.h5",'r')

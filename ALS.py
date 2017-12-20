@@ -118,29 +118,4 @@ def calcu_RMSE(observed_rating, estimated_rating):
 #     return p
 
 if __name__=='__main__':
-    os.chdir('F:/Data/last.FM/reg_data')
-    rating_data = pd.read_csv('output.csv')
-    row = rating_data['userID'].get_values()
-    col = rating_data['artistID'].get_values()
-    data = rating_data['weight'].get_values()
-
-
-    rating_matrix = coo_matrix((data, (row, col)), dtype=np.float)
-
-    del rating_data, row, col, data
-    gc.collect()
-
-    # y_observed = pd.read_csv('y_observed.csv')
-    # row = y_observed['userID'].get_values()
-    # col = y_observed['artistID'].get_values()
-    # data = y_observed['y'].get_values()
-    # y_observed_matrix = coo_matrix((data, (row, col)), dtype=np.float)
-    # del y_observed, row, col, data
-    # gc.collect()
-
-    path = 'F:/Data/last.FM/reg_data/yPrepare.h5'
-    name1 = '/yData/y'
-    name2 = '/yData/y_trans'
-    result = als(rating_matrix, path, name1, name2, factor_num=5, method='l2', iteration_num=100, user_loop_num=1, item_loop_num=5, lambda_user=3, lambda_item=3)
-    print(result)
-    #print(graph(result[1:]))
+   pass

@@ -12,7 +12,6 @@ from    sklearn.preprocessing import LabelEncoder
 from    sltools               import pandasToSparse
 from    sltools               import sparseToPandas
 
-
 """
 data preparaton
 
