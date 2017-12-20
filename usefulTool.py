@@ -417,6 +417,8 @@ def DealingDescreteMissingValue(ObjectNoattr ,fileplace ,prefix ):
 
 
 
+
+
 def generate_quantile(dataset, group_key, calcu_name, quant=[0.05,0.25,0.5,0.75,0.95]):
     return dataset.groupby(group_key)[calcu_name].quantile(quant).unstack()
 
