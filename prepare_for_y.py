@@ -2,49 +2,123 @@ import gc
 import numpy as np
 import  pandas as pd
 import  os
-from sltools import load_pickle
-from scipy.sparse import  vstack
 from scipy.sparse import  csr_matrix
 from scipy.sparse import  diags
-from scipy.sparse import coo_matrix
-from itemNetDisPrepare import extractItemInfo
-from userNetDisPrepare import extractUserInfo
-import dask.array as da
 import h5sparse
 import h5py
 import  time
 from regression import regression
 from usefulTool import generate_quantile
-from    ALS                   import als
+from    ALS     import  trainAndValidation
+from itertools  import product
+from  numpy.random import  permutation
+
+def splitTrain(trainFilePlace,
+               userID,itemID,targetID,
+               ifrandom ,valiPercent
+                ,trainSetName, validationSetName
+               ):
+    # trainfilePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\user_artists.csv"
+    # ifrandom = True
+    # valiPercent = 0.2
+    #userID = 'userID'; itemID='artistID'; targetID = 'weight'
+    trainOriginaldata = pd.read_csv(trainFilePlace)
+    trainOriginaldata = trainOriginaldata.reindex(columns = [userID,itemID,targetID])
+
+    # trainOriginaldata.reindex
+    if ifrandom:
+        while(True):
+            # 此参数用于确定原始数据的切分是否需要按照random处理
+            #trainOriginaldata = trainOriginaldata.head()
+            numOfdata = trainOriginaldata.shape[0]
+            permu = permutation(range(numOfdata))
+            split = int((1-valiPercent)*numOfdata)
+
+            train      = trainOriginaldata.loc[permu[:split],:]
+            validation = trainOriginaldata.loc[permu[split:],:]
+
+            train = pd.concat([train, validation.nlargest(1, columns=itemID),validation.nlargest(1, columns=userID)])
+            train.drop_duplicates(keep='first', inplace=True)
+
+            flag1 =  len(trainOriginaldata[userID].unique()) - len(train[userID].unique())
+
+            flag2 =  len(trainOriginaldata[itemID].unique()) - len(train[itemID].unique())
+            if(flag1 == 0 or flag2 == 0 ):
+                 print(flag1,flag2)
+                 break
+            else:
+                print(flag1,flag2)
+
+        train.to_csv(trainSetName,index=False)
+        validation.to_csv(validationSetName,index=False)
+    else:
+        raise Exception('data has time attr , do not split as random')
 
 
-def transfromData():
-    filePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\"
-    train = pd.read_csv(filePlace+"user_artists.csv")
-    train.weight = np.log(train.weight)
-    train.to_csv(filePlace+"user_artistsAfterlog.csv",index = False)
+
+
+def transfromData(trainFilePlace,nameAfterTransform):
+
+        train = pd.read_csv(trainFilePlace)
+        train.weight = np.log(train.weight)
+        train.to_csv(nameAfterTransform, index=False)
+
+
+def generateContinousVar(nameAfterTransform,userID,itemID,targetID
+                         ,userContinueFileName
+                         ,itemContinueFileName
+                         ):
+    train = pd.read_csv(nameAfterTransform)
+    userCntinue   = generate_quantile(train,userID,targetID)
+    itemCntinue = generate_quantile(train, itemID, targetID)
+    userCntinue.to_csv(userContinueFileName)
+    itemCntinue.to_csv(itemContinueFileName)
+
+
+def prepareY(doRregression,
+             networkSavingplace,
+                trainAfterTransform,
+                    userID,itemID,targetID,
+                        trainAfterDealingName
+             ):
+
+    # read train data
+    train = pd.read_csv(trainAfterTransform)
+    train = train.sort_values(by = [userID,itemID])
+
+
+    # do not do regression at the first time trying
+
+    if doRregression == True:
+        weight = regression(train)
+        train['weight'] = weight
+
+    train.to_csv(trainAfterDealingName,index = False)
+    gc.collect()
+
+
+    print("train data has prepared !")
+
+    # we are now start to prepare y
+    user_num = train[userID].max() +1
+
+    # calculate h later
+    # h is the sum of ( median of useful DIS of user) and ( median of useful DIS of user)
+
+    with h5sparse.File(networkSavingplace + "itemdis.h5") as item_dis,\
+        h5sparse.File(networkSavingplace + "userdis.h5") as  user_dis:
+        idis = item_dis['disData/data'].value.data.copy()
+        idis = idis[idis >0]
+        idis.sort()
+        udis = user_dis['disData/data'].value.data.copy()
+        udis = udis[udis>0]
+        udis.sort()
+        h = np.median(udis) + np.median(idis)
+        del udis ,idis
 
 
 
-
-
-
-
-
-
-
-def generateContinousVar(filePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\"):
-    os.chdir(filePlace)
-    train = pd.read_csv("user_artistsAfterlog.csv")
-    userCntinue   = generate_quantile(train,'userID','weight')
-    artistCntinue = generate_quantile(train, 'artistID', 'weight')
-    userCntinue.to_csv("user_continuous_covariates.csv")
-    artistCntinue.to_csv("artist_continuous_covariates.csv")
-
-
-
-def kernel(weight,h):
-    return np.exp(- np.sqrt(weight)/h )
+    yPrepareForSmallData(user_num,networkSavingplace,itemID,userID,targetID,train,h)
 
 
 def yPrepareForBigData(user_num ,user_id_dict,item_id_dict,filePlace,item_id,user_id,target_id,train):
@@ -55,7 +129,7 @@ def yPrepareForBigData(user_num ,user_id_dict,item_id_dict,filePlace,item_id,use
 def yPrepareForSmallData(user_num,filePlace,item_id,user_id,target_id,train,h,sep =10):
     # sep 指的是最后的block的值，使用int(user_num/sep)
 
-    usrList = train[user_id].unique()
+    usrList =list(range(train[user_id].max()+1))
     usrList.sort()
     usrList = np.array(usrList)
 
@@ -131,6 +205,11 @@ def yPrepareForSmallData(user_num,filePlace,item_id,user_id,target_id,train,h,se
 
             gc.collect()
 
+            # you can do the truncate process here or not
+
+
+
+
             # broadcast with the user-train-sized x data
 
             ## obtain user relationship with train
@@ -168,7 +247,7 @@ def yPrepareForSmallData(user_num,filePlace,item_id,user_id,target_id,train,h,se
 
             weightSort = weight.copy()
             weightSort.sort()
-            weightSort = weightSort[:, -4].reshape((weightSort.shape[0],1))
+            weightSort = weightSort[:, -5].reshape((weightSort.shape[0],1))
             # return a sparse
             weight[ weight < weightSort ] = 0
             weight = csr_matrix(weight)
@@ -226,130 +305,5 @@ def yPrepareForSmallData(user_num,filePlace,item_id,user_id,target_id,train,h,se
                 print("the   ",np.round((userNowDealing+1)/(user_num-1),3 ),"  of data is prepared \n \n please be patient")
 
 
-
-def main():
-
-
-    filePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\"
-
-
-    gc.collect()
-    # read train data
-    os.chdir("C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k")
-    train = pd.read_csv("user_artistsAfterlog.csv")
-
-    user_id = "userID"
-    item_id = "artistID"
-    target_id  = "weight"
-
-
-
-
-    train = train.sort_values(by = [user_id,item_id])
-    #
-    #
-    # trainMean = train.groupby('userID')['weight'].transform('mean')
-    # train['weight'] = train['weight']-trainMean
-
-
-
-    # do not do regression at the first time trying
-
-    # weight = regression(train)
-    # train['weight'] = weight
-
-    train.to_csv("trainAfterReg.csv")
-    gc.collect()
-
-
-    print("train data has prepared !")
-
-    # we are now start to prepare y
-    user_num = train[user_id].max() +1
-
-
-
-
-    # calculate h later
-    # h is the sum of ( median of useful DIS of user) and ( median of useful DIS of user)
-
-    with h5sparse.File(filePlace + "itemdis.h5") as item_dis,\
-        h5sparse.File(filePlace + "userdis.h5") as  user_dis:
-        idis = item_dis['disData/data'].value.data.copy()
-        idis = idis[idis >0]
-        idis.sort()
-
-        udis = user_dis['disData/data'].value.data.copy()
-        udis = udis[udis>0]
-        udis.sort()
-        h = np.median(udis) + np.median(idis)
-        del udis ,idis
-        # item_dis = h5sparse.File(filePlace + "itemdis.h5")
-        # user_dis = h5sparse.File(filePlace + "userdis.h5")
-
-
-
-    yPrepareForSmallData(user_num,filePlace,item_id,user_id,target_id,train,h)
-
-
-
-    trainAfterReg = pd.read_csv("trainAfterReg.csv")
-    row = trainAfterReg['userID'].get_values()
-    col = trainAfterReg['artistID'].get_values()
-    data = trainAfterReg['weight'].get_values()
-
-    rating_matrix = coo_matrix((data, (row, col)), dtype=np.float)
-
-    del train, row, col, data
-    gc.collect()
-
-    # y_observed = pd.read_csv('y_observed.csv')
-    # row = y_observed['userID'].get_values()
-    # col = y_observed['artistID'].get_values()
-    # data = y_observed['y'].get_values()
-    # y_observed_matrix = coo_matrix((data, (row, col)), dtype=np.float)
-    # del y_observed, row, col, data
-    # gc.collect()
-
-    path = 'C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\yPrepare.h5'
-    name1 = '/yData/y'
-    name2 = '/yData/y_trans'
-
-    result = als(rating_matrix, path, name1, name2, factor_num=5, method='l2', iteration_num=100, user_loop_num=1,
-                 item_loop_num=1, lambda_user=3, lambda_item=3)
-    print(result)
-
-
-
-
-
-
-
-
-
-
-if __name__=="__main__":
-
-    transfromData()
-    generateContinousVar()
-    extractUserInfo()
-    extractItemInfo()
-    main()
-    # print(graph(result[1:]))
-
-
-    # # test
-    # h5f = h5py.File("C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\yPrepare.h5",'r')
-    # h5f['/yData/y_trans'][-1,:]
-    # h5f['yData/y'].value
-
-
-
-    # usrNet = calculateNet(1,1,1*1e4)
-    #
-    # # generate two dis for test later method
-    # usrDis = calculateDis(1,2,1*1e4)
-    # itemDis = calculateDis(1,2,22*1e4)
-    #
-    # (ulist, ilist , rlist) = subtractIdx(1,180*1e4,encoded=True)
-    #
+def kernel(weight,h):
+    return np.exp(- np.sqrt(weight)/h )

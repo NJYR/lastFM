@@ -15,7 +15,10 @@ import gc
 
 def als(rating_matrix, prepare_path, prepare_name, transpose_prepare_name, init_user_matrix=None, init_item_matrix=None,\
         factor_num=200, method='l2', lambda_user=0.001, lambda_item=0.001, \
-        iteration_num=100, user_loop_num=500, item_loop_num=500, rmse_loop_num=3, latent_file_path = ""):
+        iteration_num=100, user_loop_num=500, item_loop_num=500, rmse_loop_num=3, latent_file_path = "",
+        latentFilePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\latentFactor.hdf5",
+        validationFilePlace = "C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k\\trainAfterReg.csv"
+        ):
     # 如果p或者q为空值的话，分解原始矩阵作为初始值
     if((init_user_matrix==None)|(init_item_matrix==None)):
         init_user_matrix, init_item_matrix = decomposed_rating_matrix(rating_matrix, factor_num)
@@ -31,7 +34,8 @@ def als(rating_matrix, prepare_path, prepare_name, transpose_prepare_name, init_
         user_num, item_num = y.shape
         user_loop_interval = np.linspace(0, user_num, user_loop_num+1, dtype=np.int)
         item_loop_interval = np.linspace(0, item_num, item_loop_num+1, dtype=np.int)
-        est_rmse = [1000]
+        est_rmse = [5]
+        est_rmse_on_vali = [5]
         # if(method=='l2'):
         #     for iter in range(iteration_num):
         #         for i, j in enumerate(user_loop_interval[:-1]):
@@ -61,7 +65,14 @@ def als(rating_matrix, prepare_path, prepare_name, transpose_prepare_name, init_
                 est_rmse.append(new_rmse)
                 print('this is the %s th iteration ,the RMSE is: %s and the change of RMSE is: %s' % (
                 iter, new_rmse, (new_rmse - est_rmse[iter])/est_rmse[iter]))
-        if(method=='l1'):
+
+
+                new_rmse_on_vali = validation(latentFilePlace,validationFilePlace )
+                est_rmse_on_vali.append(new_rmse_on_vali)
+                print('this is the %s th iteration ,the RMSE_on_validataion is: %s and the change of RMSE_on_vali is: %s' % (
+                    iter, new_rmse_on_vali, (new_rmse_on_vali - est_rmse_on_vali[iter]) / est_rmse_on_vali[iter]))
+
+        elif(method=='l1'):
             for iter in range(iteration_num):
                 for i, j in enumerate(user_loop_interval[:-1]):
                     next_node = user_loop_interval[i + 1]
@@ -76,11 +87,24 @@ def als(rating_matrix, prepare_path, prepare_name, transpose_prepare_name, init_
                 new_rmse = get_RMSE(rating_matrix, user_latent_factor_matrix[:], item_latent_factor_matrix[:],
                                     rmse_loop_num)
                 est_rmse.append(new_rmse)
-                print('this is the %s th iteration and the change ratio of RMSE is %s' % (
-                iter, (new_rmse - est_rmse[iter])/est_rmse[iter]))
+                print('this is the %s th iteration ,the RMSE is: %s and the change of RMSE is: %s' % (
+                    iter, new_rmse, (new_rmse - est_rmse[iter]) / est_rmse[iter]))
+
+
+                new_rmse_on_vali = validation(latentFilePlace, validationFilePlace)
+                est_rmse_on_vali.append(new_rmse_on_vali)
+                print(
+                    'this is the %s th iteration ,the RMSE_on_validataion is: %s and the change of RMSE_on_vali is: %s' % (
+                        iter, new_rmse_on_vali, (new_rmse_on_vali - est_rmse_on_vali[iter]) / est_rmse_on_vali[iter]))
+
+
+
         else:
             print('no this method')
-        return est_rmse
+            print (method)
+            raise Exception('error occur !!')
+
+        return est_rmse,est_rmse_on_vali
 
 def decomposed_rating_matrix(sparse_matrix, k):
     u, s, vt = svds(sparse_matrix, k)
@@ -116,6 +140,59 @@ def calcu_RMSE(observed_rating, estimated_rating):
 #     data = pd.DataFrame({'iteration':list(range(len(y))), 'RMSE':y})
 #     p = gg.ggplot(gg.aes(x='iteration', y='RMSE'), data=data)+gg.geom_point()+gg.geom_line()
 #     return p
+
+
+def validation(latentFilePlace,validationFilePlace ,
+               userID = 'userID',itemID = 'artistID' ,targetID = 'weight'):
+    # USE FOR TEST :userID = 'userID', itemID = 'artistID', targetID = 'weight'
+    with h5py.File(latentFilePlace,'r') as h5f:
+        #h5f = h5py.File(latentFilePlace)
+        item = h5f['itemLatentFactor'].value
+        user = h5f['userLatentFactor'].value
+        evaluate = user.dot(item.transpose())
+        validationset = pd.read_csv(validationFilePlace)
+        lenOfValidation = validationset.shape[0]
+        userlist  = validationset[userID]
+        itemlist  = validationset[itemID]
+        target = validationset[targetID]
+        target_hat = evaluate[userlist,itemlist]
+        eps =np.sqrt( ((target_hat - target)**2).sum() / lenOfValidation)
+        return(eps)
+
+
+
+
+
+
+
+def trainAndValidation(trainFilePlace, prepare_path,
+                prepare_name, transpose_prepare_name, factor_num, method, iteration_num,
+                 user_loop_num,item_loop_num, lambda_user, lambda_item,
+                 latentFilePlace,validationFilePlace):
+
+    trainAfterDealing = pd.read_csv(trainFilePlace)
+    row = trainAfterDealing['userID'].get_values()
+    col = trainAfterDealing['artistID'].get_values()
+    data = trainAfterDealing['weight'].get_values()
+
+    rating_matrix = coo_matrix((data, (row, col)), dtype=np.float)
+
+    del  row, col, data
+    gc.collect()
+
+
+    rmse,rmse_val = als(rating_matrix=rating_matrix,  prepare_path= prepare_path,
+                        prepare_name=prepare_name, transpose_prepare_name=transpose_prepare_name,
+                        factor_num=factor_num, method=method, iteration_num=iteration_num,
+                        user_loop_num=user_loop_num,item_loop_num=item_loop_num,
+                        lambda_user=lambda_user, lambda_item=lambda_item,
+                    latentFilePlace=latentFilePlace,validationFilePlace=validationFilePlace
+                 )
+    return (rmse,rmse_val)
+
+
+
+
 
 if __name__=='__main__':
    pass

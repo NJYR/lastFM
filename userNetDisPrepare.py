@@ -21,19 +21,22 @@ from usefulTool import largeMatrixDis
 from sltools    import save_pickle
 
 
-def extractUserInfo():
-    ####################           change dir       ######################
-    os.chdir("C:\\Users\\22560\\PycharmProjects\\lastFM\\hetrec2011-lastfm-2k")
+def extractUserInfo(userID,userRelationshipFile,
+                    userContinueFileName,networkSavingplace,disCalculateIterNumber
+                    ):
 
-    # be attention of my way to deal with dates cols
-    user_id = 'userID'
-    userRelationship = "user_friends.csv"
-    userRelationship = pd.read_csv(userRelationship)
+    userRelationship = pd.read_csv(userRelationshipFile)
     userRelationship.loc[:,'value'] = 1
 
-    usr_continous = pd.read_csv("user_continuous_covariates.csv")
-    usr_continous.set_index(user_id,inplace=True)
+    usr_continous = pd.read_csv(userContinueFileName)
+    usr_continous.set_index(userID,inplace=True)
+    user_max = usr_continous.index.max()
+    usr_continous = usr_continous.reindex(list(range(user_max + 1)))
+    usr_continous.reset_index(inplace=True)
+
     continueList = usr_continous.columns.tolist()
+    continueList.remove(userID)
+    usrHasntCntnue = fillCntnueNAN(usr_continous, continueList, userID)
     scaleCntnueVariable(usr_continous, continueList)
 
     # userRelationship 和 usr_continous 中的id数目是一样的
@@ -45,13 +48,15 @@ def extractUserInfo():
     # ifHasitsOwn: a flag shows that the userRelationship contains the user's relationship
     # with it self or not
     ifHasitsOwn = False
-    fileplace = 'C:\\Users\\22560\\PycharmProjects\\lastFM\\networkData\\'
     relationToNetwork(userRelationship,numOfUser=numOfUser,ifHasitsOwn = ifHasitsOwn,
-                                ifBIGDATA = False,prefix = 'user',fileplace = fileplace)
+                                ifBIGDATA = False,prefix = 'user',fileplace = networkSavingplace)
 
 
-    largeMatrixDis(usr_continous.values,ObjectHasntCntnue=[], num=2,
-                   netFilePlace=fileplace ,prefix="user")
+    # prepare largeDisMatrix
+    usr_continous.set_index(userID,inplace = True)
+
+    largeMatrixDis(usr_continous.values,ObjectHasntCntnue=usrHasntCntnue, num=disCalculateIterNumber,
+                   netFilePlace=networkSavingplace ,prefix="user")
 
     #save_pickle(user_id_dict, fileplace + "user_id_dict")
     # return(user_id_dict)

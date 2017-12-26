@@ -286,11 +286,12 @@ def LargeSparseMatrixCosine(largeSparseMatrix,ObjectNoAttr,
                     # if select = 100
                     # then select the first 100 friends of each user
                     #dot_cosine_data = sparseToPandas(dot_cosine)
-                    dot_cosineSort = dot_cosine.todense()
+                    dot_cosine = dot_cosine.todense()
+                    dot_cosineSort = dot_cosine.copy()
                     dot_cosineSort.sort()
                     dot_cosineSort = dot_cosineSort[:,-select]
                     # return a sparse
-                    dot_cosine = dot_cosine > dot_cosineSort
+                    dot_cosine[dot_cosine < dot_cosineSort] = 0
                     dot_cosine = csr_matrix(dot_cosine)
                 else:
                     dot_cosineDF = sparseToPandas(dot_cosine)
@@ -420,5 +421,9 @@ def DealingDescreteMissingValue(ObjectNoattr ,fileplace ,prefix ):
 
 def generate_quantile(dataset, group_key, calcu_name, quant=[0.05,0.25,0.5,0.75,0.95]):
     return dataset.groupby(group_key)[calcu_name].quantile(quant).unstack()
+
+
+
+
 
 
